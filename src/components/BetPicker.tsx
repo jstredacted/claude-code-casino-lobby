@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 
 const CHIPS = [10, 25, 50, 100];
+const MIN_BET = 1;
+const MAX_BET = 500;
 
 interface BetPickerProps {
   balance: number;
@@ -9,6 +11,8 @@ interface BetPickerProps {
   onConfirm: (amount: number) => void;
   onQuit: () => void;
 }
+
+type Mode = "chips" | "manual";
 
 function ChipToken({ value, selected, disabled }: { value: number; selected: boolean; disabled: boolean }) {
   const color = disabled ? "gray" : selected ? "yellow" : "white";
@@ -28,6 +32,7 @@ function ChipToken({ value, selected, disabled }: { value: number; selected: boo
 }
 
 export function BetPicker({ balance, lastBet, onConfirm, onQuit }: BetPickerProps) {
+  const [mode, setMode] = useState<Mode>("chips");
   const [selectedChip, setSelectedChip] = useState(() => {
     if (lastBet) {
       const idx = CHIPS.indexOf(lastBet);
@@ -35,31 +40,86 @@ export function BetPicker({ balance, lastBet, onConfirm, onQuit }: BetPickerProp
     }
     return 0;
   });
+  const [manualInput, setManualInput] = useState("");
 
   useInput((input, key) => {
     if (input === "q") {
       onQuit();
       return;
     }
-    if (key.leftArrow) setSelectedChip((p) => Math.max(0, p - 1));
-    if (key.rightArrow) setSelectedChip((p) => Math.min(CHIPS.length - 1, p + 1));
-    if (key.return) {
-      const bet = CHIPS[selectedChip];
-      if (bet <= balance) onConfirm(bet);
+
+    if (mode === "chips") {
+      if (key.leftArrow) setSelectedChip((p) => Math.max(0, p - 1));
+      if (key.rightArrow) setSelectedChip((p) => Math.min(CHIPS.length - 1, p + 1));
+      if (key.return) {
+        const bet = CHIPS[selectedChip];
+        if (bet <= balance) onConfirm(bet);
+      }
+      if (input === "m") {
+        setManualInput("");
+        setMode("manual");
+      }
+    } else if (mode === "manual") {
+      if (key.return) {
+        const amount = parseInt(manualInput);
+        if (amount >= MIN_BET && amount <= MAX_BET && amount <= balance) {
+          onConfirm(amount);
+        }
+        return;
+      }
+      if (key.escape) {
+        setMode("chips");
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setManualInput((p) => p.slice(0, -1));
+        return;
+      }
+      if (/^[0-9]$/.test(input) && manualInput.length < 4) {
+        setManualInput((p) => p + input);
+      }
     }
   });
+
+  const manualAmount = parseInt(manualInput) || 0;
+  const manualValid = manualAmount >= MIN_BET && manualAmount <= MAX_BET && manualAmount <= balance;
 
   return (
     <Box flexDirection="column" alignItems="center">
       <Text bold>Place Your Bet</Text>
-      <Box marginTop={1}>
-        {CHIPS.map((chip, i) => (
-          <ChipToken key={chip} value={chip} selected={i === selectedChip} disabled={chip > balance} />
-        ))}
-      </Box>
-      <Box marginTop={1}>
-        <Text dimColor>{"\u2190\u2192"} Select   Enter: Confirm   q: Back</Text>
-      </Box>
+      {mode === "chips" ? (
+        <>
+          <Box marginTop={1}>
+            {CHIPS.map((chip, i) => (
+              <ChipToken key={chip} value={chip} selected={i === selectedChip} disabled={chip > balance} />
+            ))}
+          </Box>
+          <Box marginTop={1}>
+            <Text dimColor>{"\u2190\u2192"} Select   Enter: Confirm   [M] Manual   q: Back</Text>
+          </Box>
+        </>
+      ) : (
+        <>
+          <Box marginTop={1} flexDirection="column" alignItems="center">
+            <Box>
+              <Text dimColor>Amount: $</Text>
+              <Text bold color={manualValid ? "green" : manualInput.length > 0 ? "red" : "white"}>
+                {manualInput || "_"}
+              </Text>
+              <Text dimColor> </Text>
+              <Text color="gray">\u2588</Text>
+            </Box>
+            <Box marginTop={1}>
+              <Text dimColor>
+                ${MIN_BET}–${Math.min(MAX_BET, balance)} (balance: ${balance.toLocaleString()})
+              </Text>
+            </Box>
+          </Box>
+          <Box marginTop={1}>
+            <Text dimColor>Type amount   Enter: Confirm   Esc: Back to chips   q: Quit</Text>
+          </Box>
+        </>
+      )}
     </Box>
   );
 }
