@@ -1,0 +1,19 @@
+{
+  "name": "casino-lobby",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.tsx",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "ink": "^5.1.0",
+    "ink-select-input": "^6.0.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "typescript": "^5.7.0"
+  }
+}
