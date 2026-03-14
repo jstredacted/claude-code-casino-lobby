@@ -1,0 +1,4 @@
+node_modules/
+dist/
+bankroll.json
+.casino.pid
