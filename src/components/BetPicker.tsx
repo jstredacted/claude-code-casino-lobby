@@ -2,14 +2,29 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 
 const CHIPS = [10, 25, 50, 100];
-const MIN_BET = 10;
-const MAX_BET = 500;
 
 interface BetPickerProps {
   balance: number;
   lastBet?: number;
   onConfirm: (amount: number) => void;
   onQuit: () => void;
+}
+
+function ChipToken({ value, selected, disabled }: { value: number; selected: boolean; disabled: boolean }) {
+  const color = disabled ? "gray" : selected ? "yellow" : "white";
+  return (
+    <Box flexDirection="column" alignItems="center" marginRight={2}>
+      <Text color={color} bold={selected}>
+        {selected ? "\u250C\u2500\u2500\u2500\u2500\u2510" : "      "}
+      </Text>
+      <Text color={color} bold={selected} inverse={selected}>
+        {` $${value} `}{value < 100 ? " " : ""}
+      </Text>
+      <Text color={color} bold={selected}>
+        {selected ? "\u2514\u2500\u2500\u2500\u2500\u2518" : "      "}
+      </Text>
+    </Box>
+  );
 }
 
 export function BetPicker({ balance, lastBet, onConfirm, onQuit }: BetPickerProps) {
@@ -26,40 +41,25 @@ export function BetPicker({ balance, lastBet, onConfirm, onQuit }: BetPickerProp
       onQuit();
       return;
     }
-    if (key.leftArrow) {
-      setSelectedChip((prev) => Math.max(0, prev - 1));
-    }
-    if (key.rightArrow) {
-      setSelectedChip((prev) => Math.min(CHIPS.length - 1, prev + 1));
-    }
+    if (key.leftArrow) setSelectedChip((p) => Math.max(0, p - 1));
+    if (key.rightArrow) setSelectedChip((p) => Math.min(CHIPS.length - 1, p + 1));
     if (key.return) {
       const bet = CHIPS[selectedChip];
-      if (bet <= balance && bet >= MIN_BET && bet <= MAX_BET) {
-        onConfirm(bet);
-      }
+      if (bet <= balance) onConfirm(bet);
     }
   });
 
   return (
     <Box flexDirection="column" alignItems="center">
       <Text bold>Place Your Bet</Text>
-      <Text dimColor>Balance: ${balance.toLocaleString()}</Text>
       <Box marginTop={1}>
         {CHIPS.map((chip, i) => (
-          <Box key={chip} marginRight={2}>
-            <Text
-              bold={i === selectedChip}
-              color={i === selectedChip ? "yellow" : chip > balance ? "gray" : "white"}
-              inverse={i === selectedChip}
-            >
-              {" "}${chip}{" "}
-            </Text>
-          </Box>
+          <ChipToken key={chip} value={chip} selected={i === selectedChip} disabled={chip > balance} />
         ))}
       </Box>
-      <Text dimColor marginTop={1}>
-        {"<-/-> Select   Enter: Confirm   q: Back"}
-      </Text>
+      <Box marginTop={1}>
+        <Text dimColor>{"\u2190\u2192"} Select   Enter: Confirm   q: Back</Text>
+      </Box>
     </Box>
   );
 }

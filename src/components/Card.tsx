@@ -1,33 +1,62 @@
 import React from "react";
-import { Text } from "ink";
+import { Box, Text } from "ink";
+import type { Card } from "../engine/deck.js";
 
-interface CardProps {
-  value: string;
-  suit: string;
-  hidden?: boolean;
+function suitColor(suit: string): string {
+  return suit === "\u2665" || suit === "\u2666" ? "red" : "white";
 }
 
-export function CardDisplay({ value, suit, hidden }: CardProps) {
-  if (hidden) return <Text color="gray">[?]</Text>;
+export function AsciiCard({ card, faceDown }: { card?: Card; faceDown?: boolean }) {
+  if (faceDown || !card) {
+    return (
+      <Box flexDirection="column">
+        <Text>{"\u250C\u2500\u2500\u2500\u2500\u2500\u2510"}</Text>
+        <Text>{"\u2502"}<Text color="blue">{"\u2591\u2591\u2591\u2591\u2591"}</Text>{"\u2502"}</Text>
+        <Text>{"\u2502"}<Text color="blue">{"\u2591\u2591\u2591\u2591\u2591"}</Text>{"\u2502"}</Text>
+        <Text>{"\u2502"}<Text color="blue">{"\u2591\u2591\u2591\u2591\u2591"}</Text>{"\u2502"}</Text>
+        <Text>{"\u2514\u2500\u2500\u2500\u2500\u2500\u2518"}</Text>
+      </Box>
+    );
+  }
 
-  const suitColor = suit === "♥" || suit === "♦" ? "red" : "white";
+  const v = card.value;
+  const s = card.suit;
+  const c = suitColor(s);
+
+  const top = v === "10" ? "10   " : `${v}    `;
+  const mid = `  ${s}  `;
+  const bot = v === "10" ? "   10" : `    ${v}`;
+
   return (
-    <Text>
-      <Text bold>{value}</Text>
-      <Text color={suitColor}>{suit}</Text>
-    </Text>
+    <Box flexDirection="column">
+      <Text>{"\u250C\u2500\u2500\u2500\u2500\u2500\u2510"}</Text>
+      <Text>{"\u2502"}<Text color={c}>{top}</Text>{"\u2502"}</Text>
+      <Text>{"\u2502"}<Text color={c}>{mid}</Text>{"\u2502"}</Text>
+      <Text>{"\u2502"}<Text color={c}>{bot}</Text>{"\u2502"}</Text>
+      <Text>{"\u2514\u2500\u2500\u2500\u2500\u2500\u2518"}</Text>
+    </Box>
   );
 }
 
-export function HandDisplay({ cards, hidden = false }: { cards: Array<{ value: string; suit: string }>; hidden?: boolean }) {
+export function HandDisplay({
+  cards,
+  visibleCount,
+  faceDownSet,
+}: {
+  cards: Card[];
+  visibleCount?: number;
+  faceDownSet?: Set<number>;
+}) {
+  const count = visibleCount ?? cards.length;
+  const faceDown = faceDownSet ?? new Set<number>();
+
   return (
-    <Text>
-      {cards.map((c, i) => (
-        <Text key={i}>
-          {i > 0 && <Text>  </Text>}
-          <CardDisplay value={c.value} suit={c.suit} hidden={hidden && i === 0} />
-        </Text>
+    <Box flexDirection="row">
+      {cards.slice(0, count).map((card, i) => (
+        <Box key={i} marginRight={1}>
+          <AsciiCard card={card} faceDown={faceDown.has(i)} />
+        </Box>
       ))}
-    </Text>
+    </Box>
   );
 }

@@ -42,6 +42,14 @@ export function canInsure(dealerUpCard: Card): boolean {
   return dealerUpCard.value === "A";
 }
 
+export function calculateInsurancePayout(insuranceBet: number, dealerHasBlackjack: boolean): number {
+  return dealerHasBlackjack ? insuranceBet * 2 : -insuranceBet;
+}
+
+export function canDoubleDown(hand: Card[], balance: number, bet: number): boolean {
+  return hand.length === 2 && balance >= bet;
+}
+
 export function dealerShouldHit(hand: Card[]): boolean {
   return handValue(hand) < 17;
 }

@@ -10,7 +10,7 @@ export function ChipBar({ balance, bet }: ChipBarProps) {
   return (
     <Box justifyContent="space-between" width="100%">
       <Text>
-        <Text color="green" bold>$</Text>
+        <Text color="green" bold>$ </Text>
         <Text bold>{balance.toLocaleString()}</Text>
       </Text>
       {bet !== undefined && (
