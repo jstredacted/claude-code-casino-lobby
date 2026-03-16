@@ -3,9 +3,13 @@ import { dirname } from "path";
 
 export interface CasinoSettings {
   chips: number[];
+  startingBalance: number;
 }
 
 export const DEFAULT_CHIPS = [10, 25, 50, 100];
+export const DEFAULT_STARTING_BALANCE = 2500;
+const MIN_STARTING_BALANCE = 100;
+const MAX_STARTING_BALANCE = 1_000_000;
 const DEFAULT_PATH = `${process.env.HOME}/.claude/casino/settings.json`;
 
 function isValidChips(chips: unknown): chips is number[] {
@@ -16,16 +20,28 @@ function isValidChips(chips: unknown): chips is number[] {
   );
 }
 
+function isValidStartingBalance(val: unknown): val is number {
+  return (
+    typeof val === "number" &&
+    Number.isInteger(val) &&
+    val >= MIN_STARTING_BALANCE &&
+    val <= MAX_STARTING_BALANCE
+  );
+}
+
 export function loadSettings(path: string = DEFAULT_PATH): CasinoSettings {
-  if (!existsSync(path)) return { chips: DEFAULT_CHIPS };
+  const defaults = { chips: DEFAULT_CHIPS, startingBalance: DEFAULT_STARTING_BALANCE };
+  if (!existsSync(path)) return defaults;
   try {
     const data = JSON.parse(readFileSync(path, "utf-8"));
-    if (data && isValidChips(data.chips)) {
-      return { chips: data.chips };
-    }
-    return { chips: DEFAULT_CHIPS };
+    return {
+      chips: data && isValidChips(data.chips) ? data.chips : DEFAULT_CHIPS,
+      startingBalance: data && isValidStartingBalance(data.startingBalance)
+        ? data.startingBalance
+        : DEFAULT_STARTING_BALANCE,
+    };
   } catch {
-    return { chips: DEFAULT_CHIPS };
+    return defaults;
   }
 }
 

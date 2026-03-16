@@ -310,7 +310,7 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
             chips={chips}
             onChipsChange={(newChips) => {
               setChips(newChips);
-              saveSettings({ chips: newChips });
+              saveSettings({ ...loadSettings(), chips: newChips });
             }}
             onConfirm={(amount) => {
               setBet(amount);
@@ -340,6 +340,7 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
             </Text>
           </Box>
         </Box>
+        <BigRoad entries={history} />
       </Box>
     );
   }

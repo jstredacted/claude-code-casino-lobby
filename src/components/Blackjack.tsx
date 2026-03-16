@@ -388,7 +388,7 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
           <Text color="green" bold>${balance.toLocaleString()}</Text>
         </Box>
         <Box marginTop={1} justifyContent="center">
-          <BetPicker balance={balance} lastBet={lastBet} chips={chips} onChipsChange={(newChips) => { setChips(newChips); saveSettings({ chips: newChips }); }} onConfirm={startHand} onQuit={onQuit} />
+          <BetPicker balance={balance} lastBet={lastBet} chips={chips} onChipsChange={(newChips) => { setChips(newChips); saveSettings({ ...loadSettings(), chips: newChips }); }} onConfirm={startHand} onQuit={onQuit} />
         </Box>
       </Box>
     );

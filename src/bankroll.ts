@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname } from "path";
+import { loadSettings } from "./settings.js";
 
-export const DEFAULT_BALANCE = 1000;
 const DEFAULT_PATH = `${process.env.HOME}/.claude/casino/bankroll.json`;
 
 export interface Bankroll {
@@ -10,22 +10,24 @@ export interface Bankroll {
 }
 
 export function loadBankroll(path: string = DEFAULT_PATH): Bankroll {
+  const { startingBalance } = loadSettings();
   if (!existsSync(path)) {
-    return { balance: DEFAULT_BALANCE, hands_played: 0 };
+    return { balance: startingBalance, hands_played: 0 };
   }
   try {
     return JSON.parse(readFileSync(path, "utf-8"));
   } catch {
-    return { balance: DEFAULT_BALANCE, hands_played: 0 };
+    return { balance: startingBalance, hands_played: 0 };
   }
 }
 
-export function saveBankroll(bankroll: Bankroll, path: string = DEFAULT_PATH): void {
+export function saveBankroll(bankroll: Bankroll, startingBalance?: number, path: string = DEFAULT_PATH): void {
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
   if (bankroll.balance <= 0) {
-    bankroll.balance = DEFAULT_BALANCE;
+    const refill = startingBalance ?? loadSettings().startingBalance;
+    bankroll.balance = refill;
   }
 
   writeFileSync(path, JSON.stringify(bankroll, null, 2));
