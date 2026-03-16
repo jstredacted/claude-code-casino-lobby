@@ -9,15 +9,21 @@ import {
   bankerDrawsThird, resolveBaccarat, calculateBaccaratPayout,
   type BaccaratBet,
 } from "../engine/baccarat.js";
+import { loadHistory, saveHistory, addResult, type BaccaratHistoryEntry } from "../engine/history.js";
+import { BigRoad } from "./BigRoad.js";
 
 /*
- * Two-phase animation:
- *   1. Dealing: cards appear face-down rapidly (~100ms each)
+ * Three-phase animation:
+ *   1. Dealing: 4 initial cards appear face-down rapidly (~100ms each)
  *   2. Revealing: player presses Space to flip cards one by one
- *      Reveal order: player[0], banker[0], player[1], banker[1], player[2]?, banker[2]?
+ *      Reveal order: player[0], banker[0], player[1], banker[1]
+ *   3. After initial 4 revealed, if third card needed:
+ *      - Deal third card(s) face-down (dealingThird phase)
+ *      - Reveal third card(s) via Space (revealingThird phase)
+ *   4. Auto-resolve after all cards revealed
  */
 
-type Phase = "betting" | "chooseSide" | "dealing" | "revealing" | "result";
+type Phase = "betting" | "chooseSide" | "dealing" | "revealing" | "dealingThird" | "revealingThird" | "result";
 
 const DEAL_DELAY = 100; // fast face-down placement
 
@@ -37,11 +43,22 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
   const [betSide, setBetSide] = useState<BaccaratBet>("player");
   const [result, setResult] = useState("");
   const [payout, setPayout] = useState(0);
+  const [history, setHistory] = useState<BaccaratHistoryEntry[]>(() => loadHistory());
+
+  const recordResult = useCallback((winner: "player" | "banker" | "tie") => {
+    setHistory(prev => {
+      const next = addResult(prev, winner);
+      saveHistory(next);
+      return next;
+    });
+  }, []);
 
   // Animation
-  const [dealStep, setDealStep] = useState(0); // cards placed face-down
-  const [totalCards, setTotalCards] = useState(0);
-  const [revealStep, setRevealStep] = useState(0); // cards flipped face-up
+  const [dealStep, setDealStep] = useState(0); // cards placed face-down (initial 4)
+  const [revealStep, setRevealStep] = useState(0); // cards flipped face-up (initial 4)
+  const [thirdDealStep, setThirdDealStep] = useState(0); // third cards placed face-down
+  const [thirdRevealStep, setThirdRevealStep] = useState(0); // third cards flipped
+  const [thirdCardCount, setThirdCardCount] = useState(0); // how many third cards to deal
 
   const dealCard = useCallback((): Card => {
     if (shouldReshuffle(shoe)) {
@@ -55,56 +72,113 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
   const playRound = useCallback((side: BaccaratBet) => {
     setBetSide(side);
 
+    // Only deal initial 2 cards each
     const pHand = [dealCard(), dealCard()];
     const bHand = [dealCard(), dealCard()];
 
-    let pTotal = baccaratHandTotal(pHand);
-    let bTotal = baccaratHandTotal(bHand);
-
-    if (!isNatural(pTotal) && !isNatural(bTotal)) {
-      if (playerDrawsThird(pTotal)) {
-        const pThird = dealCard();
-        pHand.push(pThird);
-        pTotal = baccaratHandTotal(pHand);
-
-        if (bankerDrawsThird(bTotal, pThird)) {
-          bHand.push(dealCard());
-          bTotal = baccaratHandTotal(bHand);
-        }
-      } else {
-        if (bTotal <= 5) {
-          bHand.push(dealCard());
-          bTotal = baccaratHandTotal(bHand);
-        }
-      }
-    }
-
     setPlayerHand(pHand);
     setBankerHand(bHand);
-
-    const total = pHand.length + bHand.length;
-    setTotalCards(total);
     setDealStep(0);
     setRevealStep(0);
+    setThirdDealStep(0);
+    setThirdRevealStep(0);
+    setThirdCardCount(0);
     setPhase("dealing");
   }, [shoe, dealCard]);
 
-  // --- Deal animation: place cards face-down rapidly ---
+  // After initial 4 revealed, check if third cards are needed
+  const checkThirdCards = useCallback(() => {
+    const pTotal = baccaratHandTotal(playerHand);
+    const bTotal = baccaratHandTotal(bankerHand);
+
+    if (isNatural(pTotal) || isNatural(bTotal)) {
+      // Natural — resolve immediately
+      const r = resolveBaccarat(pTotal, bTotal);
+      const p = calculateBaccaratPayout(bet, betSide, r, bTotal);
+      setResult(r === "player" ? "Player Wins!" : r === "banker" ? "Banker Wins!" : "Tie!");
+      setPayout(p);
+      onUpdateBalance(p);
+      recordResult(r);
+      setPhase("result");
+      return;
+    }
+
+    const newPHand = [...playerHand];
+    const newBHand = [...bankerHand];
+    let thirdCount = 0;
+
+    if (playerDrawsThird(pTotal)) {
+      const pThird = dealCard();
+      newPHand.push(pThird);
+      thirdCount++;
+
+      if (bankerDrawsThird(bTotal, pThird)) {
+        newBHand.push(dealCard());
+        thirdCount++;
+      }
+    } else {
+      if (bTotal <= 5) {
+        newBHand.push(dealCard());
+        thirdCount++;
+      }
+    }
+
+    if (thirdCount > 0) {
+      setPlayerHand(newPHand);
+      setBankerHand(newBHand);
+      setThirdCardCount(thirdCount);
+      setThirdDealStep(0);
+      setThirdRevealStep(0);
+      setPhase("dealingThird");
+    } else {
+      // No third cards needed — resolve
+      const r = resolveBaccarat(pTotal, bTotal);
+      const p = calculateBaccaratPayout(bet, betSide, r, bTotal);
+      setResult(r === "player" ? "Player Wins!" : r === "banker" ? "Banker Wins!" : "Tie!");
+      setPayout(p);
+      onUpdateBalance(p);
+      recordResult(r);
+      setPhase("result");
+    }
+  }, [playerHand, bankerHand, bet, betSide, dealCard, onUpdateBalance]);
+
+  // --- Deal animation: place initial 4 cards face-down ---
   useEffect(() => {
     if (phase !== "dealing") return;
-    if (dealStep >= totalCards) {
+    if (dealStep >= 4) {
       setPhase("revealing");
       return;
     }
 
     const timer = setTimeout(() => setDealStep((s) => s + 1), DEAL_DELAY);
     return () => clearTimeout(timer);
-  }, [phase, dealStep, totalCards]);
+  }, [phase, dealStep]);
 
-  // --- Auto-resolve after all cards revealed ---
+  // --- After initial 4 revealed, transition to third cards ---
   useEffect(() => {
     if (phase !== "revealing") return;
-    if (revealStep >= totalCards) {
+    if (revealStep >= 4) {
+      const timer = setTimeout(() => checkThirdCards(), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [phase, revealStep, checkThirdCards]);
+
+  // --- Deal third cards face-down ---
+  useEffect(() => {
+    if (phase !== "dealingThird") return;
+    if (thirdDealStep >= thirdCardCount) {
+      setPhase("revealingThird");
+      return;
+    }
+
+    const timer = setTimeout(() => setThirdDealStep((s) => s + 1), DEAL_DELAY);
+    return () => clearTimeout(timer);
+  }, [phase, thirdDealStep, thirdCardCount]);
+
+  // --- Auto-resolve after all third cards revealed ---
+  useEffect(() => {
+    if (phase !== "revealingThird") return;
+    if (thirdRevealStep >= thirdCardCount) {
       const timer = setTimeout(() => {
         const pTotal = baccaratHandTotal(playerHand);
         const bTotal = baccaratHandTotal(bankerHand);
@@ -113,22 +187,28 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
         setResult(r === "player" ? "Player Wins!" : r === "banker" ? "Banker Wins!" : "Tie!");
         setPayout(p);
         onUpdateBalance(p);
+        recordResult(r);
         setPhase("result");
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [phase, revealStep, totalCards, playerHand, bankerHand, bet, betSide, onUpdateBalance]);
+  }, [phase, thirdRevealStep, thirdCardCount, playerHand, bankerHand, bet, betSide, onUpdateBalance]);
 
   useInput((input, key) => {
     if (phase === "chooseSide") {
       if (input === "p") playRound("player");
       if (input === "b") playRound("banker");
-      if (input === "t") playRound("tie");
       if (input === "q") onQuit();
     }
     if (phase === "revealing") {
       if (input === " " || key.return) {
-        setRevealStep((s) => Math.min(s + 1, totalCards));
+        setRevealStep((s) => Math.min(s + 1, 4));
+      }
+      if (input === "q") onQuit();
+    }
+    if (phase === "revealingThird") {
+      if (input === " " || key.return) {
+        setThirdRevealStep((s) => Math.min(s + 1, thirdCardCount));
       }
       if (input === "q") onQuit();
     }
@@ -139,30 +219,15 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
   });
 
   // --- Rendering helpers ---
-  // Reveal order: interleaved — player[0], banker[0], player[1], banker[1], player[2]?, banker[2]?
-  // revealStep 0 = nothing revealed, 1 = first card, etc.
-
-  function getRevealIndex(step: number): { side: "player" | "banker"; cardIdx: number } {
-    // Interleave: 0->p[0], 1->b[0], 2->p[1], 3->b[1], 4->p[2], 5->b[2]
-    const side = step % 2 === 0 ? "player" : "banker";
-    const cardIdx = Math.floor(step / 2);
-    return { side, cardIdx };
-  }
 
   function getHandVisibility(hand: Card[], isPlayer: boolean): { visible: number; faceDown: Set<number> } {
     const fd = new Set<number>();
 
     if (phase === "dealing") {
-      // Count how many cards of this hand have been placed
-      // Deal order: p[0], b[0], p[1], b[1], p[2]?, b[2]?
+      // Initial deal: p[0], b[0], p[1], b[1]
       let visible = 0;
-      for (let ci = 0; ci < hand.length; ci++) {
-        let dealPos: number;
-        if (ci < 2) {
-          dealPos = isPlayer ? ci * 2 : ci * 2 + 1;
-        } else {
-          dealPos = 4 + (isPlayer ? 0 : (playerHand.length > 2 ? 1 : 0));
-        }
+      for (let ci = 0; ci < 2; ci++) {
+        const dealPos = isPlayer ? ci * 2 : ci * 2 + 1;
         if (dealStep > dealPos) {
           visible = ci + 1;
           fd.add(ci); // all face-down during dealing
@@ -172,21 +237,56 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
     }
 
     if (phase === "revealing") {
-      // All cards visible (placed), but only revealed ones are face-up
-      const visible = hand.length;
-      for (let ci = 0; ci < hand.length; ci++) {
-        // Find which revealStep reveals this card
-        let revealPos: number;
-        if (ci < 2) {
-          revealPos = isPlayer ? ci * 2 : ci * 2 + 1;
-        } else {
-          revealPos = 4 + (isPlayer ? 0 : (playerHand.length > 2 ? 1 : 0));
-        }
+      // All 2 initial cards visible, reveal via Space
+      const visible = 2;
+      for (let ci = 0; ci < 2; ci++) {
+        const revealPos = isPlayer ? ci * 2 : ci * 2 + 1;
         if (revealStep <= revealPos) {
-          fd.add(ci); // not yet revealed
+          fd.add(ci);
         }
       }
       return { visible, faceDown: fd };
+    }
+
+    if (phase === "dealingThird") {
+      // Initial 2 cards face-up, third card being dealt face-down
+      const hasThird = hand.length > 2;
+      if (!hasThird) return { visible: 2, faceDown: fd };
+
+      // Figure out if this hand's third card has been placed yet
+      // Deal order for thirds: player third first (if exists), then banker third
+      const playerHasThird = playerHand.length > 2;
+      let thirdDealPos: number;
+      if (isPlayer) {
+        thirdDealPos = 0;
+      } else {
+        thirdDealPos = playerHasThird ? 1 : 0;
+      }
+
+      if (thirdDealStep > thirdDealPos) {
+        fd.add(2); // third card face-down
+        return { visible: 3, faceDown: fd };
+      }
+      return { visible: 2, faceDown: fd };
+    }
+
+    if (phase === "revealingThird") {
+      const hasThird = hand.length > 2;
+      if (!hasThird) return { visible: 2, faceDown: fd };
+
+      // Third card visible, check if revealed
+      const playerHasThird = playerHand.length > 2;
+      let thirdRevealPos: number;
+      if (isPlayer) {
+        thirdRevealPos = 0;
+      } else {
+        thirdRevealPos = playerHasThird ? 1 : 0;
+      }
+
+      if (thirdRevealStep <= thirdRevealPos) {
+        fd.add(2); // not yet revealed
+      }
+      return { visible: 3, faceDown: fd };
     }
 
     // result: all face-up
@@ -229,7 +329,6 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
             <Text>
               <Text bold color="cyan">[P]</Text><Text>layer  </Text>
               <Text bold color="red">[B]</Text><Text>anker  </Text>
-              <Text bold color="yellow">[T]</Text><Text>ie  </Text>
               <Text bold>[Q]</Text><Text>uit</Text>
             </Text>
           </Box>
@@ -238,11 +337,17 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
     );
   }
 
-  // --- Game screen (dealing / revealing / result) ---
+  // --- Game screen (dealing / revealing / dealingThird / revealingThird / result) ---
   const pVis = getHandVisibility(playerHand, true);
   const bVis = getHandVisibility(bankerHand, false);
-  const showPlayerScore = phase === "result" || (phase === "revealing" && pVis.faceDown.size === 0);
-  const showBankerScore = phase === "result" || (phase === "revealing" && bVis.faceDown.size === 0);
+  // Show score based on revealed (face-up) cards only
+  const pRevealedCards = playerHand.filter((_, i) => i < pVis.visible && !pVis.faceDown.has(i));
+  const bRevealedCards = bankerHand.filter((_, i) => i < bVis.visible && !bVis.faceDown.has(i));
+  const showPlayerScore = phase === "result" || pRevealedCards.length > 0;
+  const showBankerScore = phase === "result" || bRevealedCards.length > 0;
+
+  const isRevealing = phase === "revealing" || phase === "revealingThird";
+  const allRevealed = phase === "revealing" ? revealStep >= 4 : phase === "revealingThird" ? thirdRevealStep >= thirdCardCount : false;
 
   return (
     <Box flexDirection="column">
@@ -254,7 +359,7 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
         <Box flexDirection="column">
           <Box>
             <Text bold color="cyan">Player </Text>
-            {showPlayerScore && <Text dimColor>[{baccaratHandTotal(playerHand)}]</Text>}
+            {showPlayerScore && <Text dimColor>[{phase === "result" ? baccaratHandTotal(playerHand) : baccaratHandTotal(pRevealedCards)}]</Text>}
           </Box>
           <HandDisplay
             cards={playerHand}
@@ -265,7 +370,7 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
 
         <Box flexDirection="column" alignItems="flex-end">
           <Box>
-            {showBankerScore && <Text dimColor>[{baccaratHandTotal(bankerHand)}] </Text>}
+            {showBankerScore && <Text dimColor>[{phase === "result" ? baccaratHandTotal(bankerHand) : baccaratHandTotal(bRevealedCards)}] </Text>}
             <Text bold color="red">Banker</Text>
           </Box>
           <HandDisplay
@@ -284,16 +389,16 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
       </Box>
 
       <Box marginTop={1}>
-        {phase === "dealing" && (
+        {(phase === "dealing" || phase === "dealingThird") && (
           <Text dimColor>Dealing...</Text>
         )}
-        {phase === "revealing" && revealStep < totalCards && (
+        {isRevealing && !allRevealed && (
           <Text>
             <Text bold>[Space]</Text><Text> Reveal next card  </Text>
             <Text bold>[Q]</Text><Text>uit</Text>
           </Text>
         )}
-        {phase === "revealing" && revealStep >= totalCards && (
+        {isRevealing && allRevealed && (
           <Text dimColor>Resolving...</Text>
         )}
         {phase === "result" && (
@@ -305,6 +410,7 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
           </Box>
         )}
       </Box>
+      <BigRoad entries={history} />
     </Box>
   );
 }
