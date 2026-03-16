@@ -43,7 +43,7 @@ type EvaluateCallback = () => GameEvent[] | null;
 - Must be **synchronous** — no setTimeout, no async. Returns events or null.
 - `GameEvent[]` (including empty `[]`) — append to queue, continue processing
 - `null` — queue ends, no further processing
-- May NOT call React state setters directly. Use `setPhase` events to transition phases.
+- Use `setPhase` events to transition phases. Callbacks may call `finishHand()` to end the hand (which sets result/payout state and transitions to `result` phase) — this is the only exception to direct state setting, and works because React batches updates within the synchronous callback.
 - Callback receives current state via closure at queue-build time. For dealer draw loops where state changes between evaluations, the callback reads from the mutable hand arrays (which are updated by prior `dealFaceDown` events in the same queue).
 
 ### Phase Simplification
