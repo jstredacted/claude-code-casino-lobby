@@ -349,8 +349,10 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
   const pVis = getHandVisibility(playerHand, true);
   const bVis = getHandVisibility(bankerHand, false);
   // Show score based on revealed (face-up) cards only
-  const pRevealedCards = playerHand.filter((_, i) => i < pVis.visible && !pVis.faceDown.has(i));
-  const bRevealedCards = bankerHand.filter((_, i) => i < bVis.visible && !bVis.faceDown.has(i));
+  const pVisibleSet = new Set(Array.from({ length: pVis.visible }, (_, i) => i).filter(i => !pVis.faceDown.has(i)));
+  const bVisibleSet = new Set(Array.from({ length: bVis.visible }, (_, i) => i).filter(i => !bVis.faceDown.has(i)));
+  const pRevealedCards = playerHand.filter((_, i) => pVisibleSet.has(i));
+  const bRevealedCards = bankerHand.filter((_, i) => bVisibleSet.has(i));
   const showPlayerScore = phase === "result" || pRevealedCards.length > 0;
   const showBankerScore = phase === "result" || bRevealedCards.length > 0;
 
@@ -370,9 +372,8 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
             {showPlayerScore && <Text dimColor>[{phase === "result" ? baccaratHandTotal(playerHand) : baccaratHandTotal(pRevealedCards)}]</Text>}
           </Box>
           <HandDisplay
-            cards={playerHand}
-            visibleCount={pVis.visible}
-            faceDownSet={pVis.faceDown}
+            cards={playerHand.slice(0, pVis.visible)}
+            visibleSet={pVisibleSet}
           />
         </Box>
 
@@ -382,9 +383,8 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
             <Text bold color="red">Banker</Text>
           </Box>
           <HandDisplay
-            cards={bankerHand}
-            visibleCount={bVis.visible}
-            faceDownSet={bVis.faceDown}
+            cards={bankerHand.slice(0, bVis.visible)}
+            visibleSet={bVisibleSet}
           />
         </Box>
       </Box>
