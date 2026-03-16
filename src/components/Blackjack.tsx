@@ -1,32 +1,31 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Text, useInput } from "ink";
 import { HandDisplay } from "./Card.js";
 import { ChipBar } from "./ChipBar.js";
 import { BetPicker } from "./BetPicker.js";
 import { createShoe, deal, shouldReshuffle, type Shoe, type Card } from "../engine/deck.js";
 import {
-  handValue, isBlackjack, isBust, canFreeDouble, canSurrender,
-  canInsure, calculateInsurancePayout, canDoubleDown,
+  handValue, handDisplayValue, isBlackjack, isBust, canFreeDouble, canSurrender,
+  canInsure, canDoubleDown,
   dealerShouldHit, resolveHand, calculatePayout,
 } from "../engine/blackjack.js";
 import { loadSettings, saveSettings } from "../settings.js";
 
-/*
- * Deal animation steps (initial deal):
- *   1: player[0] face-down    2: player[0] flip
- *   3: dealer[0] face-down    4: dealer[0] flip
- *   5: player[1] face-down    6: player[1] flip
- *   7: dealer[1] face-down    (stays face-down = hole card)
- *   8: dealing done
- *
- * Hit animation: new card appears face-down, flips after delay
- * Dealer turn: hole card flips, then each draw animates
- */
-
-type Phase = "betting" | "dealing" | "insurance" | "playing" | "hitAnim" | "dealerTurn" | "doubleDownAnim" | "result";
+type Phase = "betting" | "animating" | "insurance" | "playing" | "result";
 
 const DEAL_DELAY = 200;
+const REVEAL_PAUSE = 2000;
 const FLIP_DELAY = 250;
+
+type EvaluateCallback = () => GameEvent[] | null;
+
+type GameEvent =
+  | { type: "dealFaceDown"; target: "player" | "dealer"; duration: typeof DEAL_DELAY }
+  | { type: "pause"; duration: typeof REVEAL_PAUSE }
+  | { type: "flip"; target: "player" | "dealer"; cardIndex: number; duration: typeof FLIP_DELAY }
+  | { type: "updateValue"; target: "player" | "dealer"; duration: 0 }
+  | { type: "evaluate"; callback: EvaluateCallback; duration: 0 }
+  | { type: "setPhase"; phase: Phase; duration: 0 };
 
 interface BlackjackProps {
   balance: number;
@@ -49,11 +48,29 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
   const [payout, setPayout] = useState(0);
   const [chips, setChips] = useState(() => loadSettings().chips);
 
-  // Animation state
-  const [dealStep, setDealStep] = useState(0);
-  const [hitFaceDown, setHitFaceDown] = useState(false);
-  const [dealerRevealStep, setDealerRevealStep] = useState(0);
-  const [dealerMaxStep, setDealerMaxStep] = useState(0);
+  // Event queue state
+  const [eventQueue, setEventQueue] = useState<GameEvent[]>([]);
+  const [eventIndex, setEventIndex] = useState(0);
+  const [visibleCards, setVisibleCards] = useState<{ player: Set<number>; dealer: Set<number> }>({
+    player: new Set(),
+    dealer: new Set(),
+  });
+
+  // Refs for stale closure avoidance
+  const playerHandRef = useRef<Card[]>([]);
+  const dealerHandRef = useRef<Card[]>([]);
+  const betRef = useRef(0);
+  const freeDoubledRef = useRef(false);
+  const doubledDownRef = useRef(false);
+  const doubledUpRef = useRef(false);
+
+  // Sync refs on every render
+  playerHandRef.current = playerHand;
+  dealerHandRef.current = dealerHand;
+  betRef.current = bet;
+  freeDoubledRef.current = freeDoubled;
+  doubledDownRef.current = doubledDown;
+  doubledUpRef.current = doubledUp;
 
   const dealCard = useCallback((): Card => {
     if (shouldReshuffle(shoe)) {
@@ -64,9 +81,6 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
     return deal(shoe);
   }, [shoe]);
 
-  const doubleUpAmount = doubledUp ? bet : 0;
-  const effectiveBet = (doubledDown ? bet * 2 : bet) + doubleUpAmount;
-
   const finishHand = useCallback((r: string, p: number) => {
     setResult(r);
     setPayout(p);
@@ -74,130 +88,188 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
     setPhase("result");
   }, [onUpdateBalance]);
 
-  // After insurance decision, check blackjacks and proceed
-  const afterInsurance = useCallback(() => {
-    const dealerBJ = isBlackjack(dealerHand);
-    const playerBJ = isBlackjack(playerHand);
+  // --- Queue builder functions ---
 
-    // Settle insurance side bet
-    if (insuranceBet > 0) {
-      const insPayout = calculateInsurancePayout(insuranceBet, dealerBJ);
-      onUpdateBalance(insPayout);
+  const resolveBlackjacks = useCallback((): GameEvent[] | null => {
+    const pHand = playerHandRef.current;
+    const dHand = dealerHandRef.current;
+    const currentBet = betRef.current;
+    const pBJ = isBlackjack(pHand);
+    const dBJ = isBlackjack(dHand);
+    const r = resolveHand(handValue(pHand), handValue(dHand), pBJ, dBJ);
+    const p = calculatePayout(currentBet, r, false);
+    const label = r === "blackjack" ? "BLACKJACK!" : r === "push" ? "Push" : "Dealer Blackjack";
+    finishHand(label, p);
+    return null;
+  }, [finishHand]);
+
+  const dealerDecision = useCallback((): GameEvent[] | null => {
+    const dHand = dealerHandRef.current;
+    if (dealerShouldHit(dHand)) {
+      const nextIdx = dHand.length;
+      return [
+        { type: "dealFaceDown", target: "dealer", duration: DEAL_DELAY },
+        { type: "pause", duration: REVEAL_PAUSE },
+        { type: "flip", target: "dealer", cardIndex: nextIdx, duration: FLIP_DELAY },
+        { type: "updateValue", target: "dealer", duration: 0 },
+        { type: "evaluate", callback: dealerDecision, duration: 0 },
+      ];
+    }
+    // Dealer stands — resolve
+    const pHand = playerHandRef.current;
+    const currentBet = betRef.current;
+    const isFreeDoubled = freeDoubledRef.current;
+    const isDoubledDown = doubledDownRef.current;
+    const isDoubledUp = doubledUpRef.current;
+    const dUpAmt = isDoubledUp ? currentBet : 0;
+    const effBet = (isDoubledDown ? currentBet * 2 : currentBet) + dUpAmt;
+
+    const r = resolveHand(handValue(pHand), handValue(dHand), false, false);
+    const p = calculatePayout(effBet, r, isFreeDoubled, dUpAmt);
+    const label = r === "win" ? "You Win!" : r === "lose" ? "Dealer Wins" : r === "push22" ? "Push (22)" : "Push";
+    finishHand(label, p);
+    return null;
+  }, [finishHand]);
+
+  const buildDealerTurnQueue = useCallback((): GameEvent[] => {
+    // Flip hole card (dealer index 1), then evaluate dealer decision
+    return [
+      { type: "flip", target: "dealer", cardIndex: 1, duration: FLIP_DELAY },
+      { type: "updateValue", target: "dealer", duration: 0 },
+      { type: "evaluate", callback: dealerDecision, duration: 0 },
+    ];
+  }, [dealerDecision]);
+
+  const checkAfterPlayerCard = useCallback((autoStand: boolean): EvaluateCallback => {
+    return () => {
+      const pHand = playerHandRef.current;
+      const pVal = handValue(pHand);
+      if (pVal > 21) {
+        const currentBet = betRef.current;
+        const isFreeDoubled = freeDoubledRef.current;
+        const isDoubledDown = doubledDownRef.current;
+        const isDoubledUp = doubledUpRef.current;
+        const dUpAmt = isDoubledUp ? currentBet : 0;
+        const effBet = (isDoubledDown ? currentBet * 2 : currentBet) + dUpAmt;
+        finishHand("Bust!", calculatePayout(effBet, "bust", isFreeDoubled, dUpAmt));
+        return null;
+      }
+      if (autoStand) {
+        return buildDealerTurnQueue();
+      }
+      return [{ type: "setPhase", phase: "playing" as Phase, duration: 0 }];
+    };
+  }, [finishHand, buildDealerTurnQueue]);
+
+  const buildHitQueue = useCallback((autoStand: boolean): GameEvent[] => {
+    const nextIdx = playerHandRef.current.length;
+    return [
+      { type: "dealFaceDown", target: "player", duration: DEAL_DELAY },
+      { type: "pause", duration: REVEAL_PAUSE },
+      { type: "flip", target: "player", cardIndex: nextIdx, duration: FLIP_DELAY },
+      { type: "updateValue", target: "player", duration: 0 },
+      { type: "evaluate", callback: checkAfterPlayerCard(autoStand), duration: 0 },
+    ];
+  }, [checkAfterPlayerCard]);
+
+  const checkAfterDeal = useCallback((): GameEvent[] | null => {
+    const pHand = playerHandRef.current;
+    const dHand = dealerHandRef.current;
+
+    if (canInsure(dHand[0])) {
+      return [{ type: "setPhase", phase: "insurance" as Phase, duration: 0 }];
     }
 
-    if (playerBJ || dealerBJ) {
-      const r = resolveHand(
-        handValue(playerHand), handValue(dealerHand),
-        playerBJ, dealerBJ,
-      );
-      const p = calculatePayout(bet, r, false);
-      const label = r === "blackjack" ? "BLACKJACK!" : r === "push" ? "Push" : "Dealer Blackjack";
-      finishHand(label, p);
-    } else {
-      setPhase("playing");
+    const pBJ = isBlackjack(pHand);
+    const dBJ = isBlackjack(dHand);
+    if (pBJ || dBJ) {
+      return [
+        { type: "flip", target: "dealer", cardIndex: 1, duration: FLIP_DELAY },
+        { type: "updateValue", target: "dealer", duration: 0 },
+        { type: "evaluate", callback: resolveBlackjacks, duration: 0 },
+      ];
     }
-  }, [playerHand, dealerHand, bet, insuranceBet, onUpdateBalance, finishHand]);
 
-  // --- Deal animation timer ---
+    return [{ type: "setPhase", phase: "playing" as Phase, duration: 0 }];
+  }, [resolveBlackjacks]);
+
+  const buildDealQueue = useCallback((): GameEvent[] => {
+    return [
+      // Player card 0
+      { type: "dealFaceDown", target: "player", duration: DEAL_DELAY },
+      { type: "pause", duration: REVEAL_PAUSE },
+      { type: "flip", target: "player", cardIndex: 0, duration: FLIP_DELAY },
+      { type: "updateValue", target: "player", duration: 0 },
+      // Dealer card 0
+      { type: "dealFaceDown", target: "dealer", duration: DEAL_DELAY },
+      { type: "pause", duration: REVEAL_PAUSE },
+      { type: "flip", target: "dealer", cardIndex: 0, duration: FLIP_DELAY },
+      { type: "updateValue", target: "dealer", duration: 0 },
+      // Player card 1
+      { type: "dealFaceDown", target: "player", duration: DEAL_DELAY },
+      { type: "pause", duration: REVEAL_PAUSE },
+      { type: "flip", target: "player", cardIndex: 1, duration: FLIP_DELAY },
+      { type: "updateValue", target: "player", duration: 0 },
+      // Dealer hole card (no flip)
+      { type: "dealFaceDown", target: "dealer", duration: DEAL_DELAY },
+      // Evaluate after deal
+      { type: "evaluate", callback: checkAfterDeal, duration: 0 },
+    ];
+  }, [checkAfterDeal]);
+
+  // --- Single animation useEffect ---
   useEffect(() => {
-    if (phase !== "dealing") return;
-    if (dealStep >= 8) {
-      // Animation done — check for insurance first
-      if (canInsure(dealerHand[0])) {
-        setPhase("insurance");
-      } else {
-        // No insurance needed, check blackjack directly
-        if (isBlackjack(playerHand) || isBlackjack(dealerHand)) {
-          const r = resolveHand(
-            handValue(playerHand), handValue(dealerHand),
-            isBlackjack(playerHand), isBlackjack(dealerHand),
-          );
-          const p = calculatePayout(bet, r, false);
-          const label = r === "blackjack" ? "BLACKJACK!" : r === "push" ? "Push" : "Dealer Blackjack";
-          finishHand(label, p);
+    if (phase !== "animating") return;
+    if (eventIndex >= eventQueue.length) return;
+
+    const event = eventQueue[eventIndex];
+
+    switch (event.type) {
+      case "dealFaceDown": {
+        const card = dealCard();
+        if (event.target === "player") {
+          setPlayerHand((prev) => [...prev, card]);
         } else {
-          setPhase("playing");
+          setDealerHand((prev) => [...prev, card]);
         }
+        break;
       }
-      return;
+      case "pause":
+        break; // Just wait for the duration
+      case "flip": {
+        setVisibleCards((prev) => {
+          const next = { player: new Set(prev.player), dealer: new Set(prev.dealer) };
+          next[event.target].add(event.cardIndex);
+          return next;
+        });
+        break;
+      }
+      case "updateValue":
+        break; // No-op — React re-renders from visibleCards change
+      case "evaluate": {
+        const newEvents = event.callback();
+        if (newEvents === null) return;
+        if (newEvents.length > 0) {
+          setEventQueue((prev) => [...prev, ...newEvents]);
+        }
+        break;
+      }
+      case "setPhase": {
+        setPhase(event.phase);
+        return; // Don't advance
+      }
     }
 
-    const isFlip = dealStep % 2 === 0 && dealStep > 0;
-    const delay = isFlip ? FLIP_DELAY : DEAL_DELAY;
-    const timer = setTimeout(() => setDealStep((s) => s + 1), delay);
-    return () => clearTimeout(timer);
-  }, [phase, dealStep, playerHand, dealerHand, bet, finishHand]);
-
-  // --- Hit animation timer ---
-  useEffect(() => {
-    if (phase !== "hitAnim") return;
-    const timer = setTimeout(() => {
-      setHitFaceDown(false);
-      const pVal = handValue(playerHand);
-      if (pVal > 21) {
-        finishHand("Bust!", calculatePayout(effectiveBet, "bust", freeDoubled, doubleUpAmount));
-      } else if (freeDoubled) {
-        // Free double is a one-card action — auto-stand
-        const newDealerHand = [...dealerHand];
-        while (dealerShouldHit(newDealerHand)) {
-          newDealerHand.push(dealCard());
-        }
-        setDealerHand(newDealerHand);
-        const extraCards = newDealerHand.length - 2;
-        const steps = 1 + extraCards * 2;
-        setDealerRevealStep(0);
-        setDealerMaxStep(steps);
-        setPhase("dealerTurn");
-      } else {
-        setPhase("playing");
-      }
-    }, FLIP_DELAY);
-    return () => clearTimeout(timer);
-  }, [phase, playerHand, dealerHand, effectiveBet, freeDoubled, doubledUp, doubleUpAmount, dealCard, finishHand]);
-
-  // --- Double down animation timer ---
-  useEffect(() => {
-    if (phase !== "doubleDownAnim") return;
-    const timer = setTimeout(() => {
-      setHitFaceDown(false);
-      const pVal = handValue(playerHand);
-      if (pVal > 21) {
-        finishHand("Bust!", calculatePayout(bet * 2 + doubleUpAmount, "bust", false, doubleUpAmount));
-      } else {
-        // Auto-stand after double down
-        const newDealerHand = [...dealerHand];
-        while (dealerShouldHit(newDealerHand)) {
-          newDealerHand.push(dealCard());
-        }
-        setDealerHand(newDealerHand);
-        const extraCards = newDealerHand.length - 2;
-        const steps = 1 + extraCards * 2;
-        setDealerRevealStep(0);
-        setDealerMaxStep(steps);
-        setPhase("dealerTurn");
-      }
-    }, FLIP_DELAY);
-    return () => clearTimeout(timer);
-  }, [phase, playerHand, dealerHand, bet, dealCard, finishHand]);
-
-  // --- Dealer turn animation timer ---
-  useEffect(() => {
-    if (phase !== "dealerTurn") return;
-    if (dealerRevealStep >= dealerMaxStep) {
-      const r = resolveHand(handValue(playerHand), handValue(dealerHand), false, false);
-      const p = calculatePayout(effectiveBet, r, freeDoubled, doubleUpAmount);
-      const label = r === "win" ? "You Win!" : r === "lose" ? "Dealer Wins" : r === "push22" ? "Push (22)" : "Push";
-      finishHand(label, p);
-      return;
+    if (event.duration > 0) {
+      const timer = setTimeout(() => setEventIndex((i) => i + 1), event.duration);
+      return () => clearTimeout(timer);
+    } else {
+      setEventIndex((i) => i + 1);
     }
+  }, [phase, eventIndex, eventQueue, dealCard]);
 
-    const isFlip = dealerRevealStep % 2 === 0 && dealerRevealStep > 0;
-    const delay = isFlip ? FLIP_DELAY : DEAL_DELAY;
-    const timer = setTimeout(() => setDealerRevealStep((s) => s + 1), delay);
-    return () => clearTimeout(timer);
-  }, [phase, dealerRevealStep, dealerMaxStep, playerHand, dealerHand, effectiveBet, freeDoubled, finishHand]);
+  // --- Action handlers ---
 
-  // --- Actions ---
   const startHand = useCallback((betAmount: number) => {
     setBet(betAmount);
     setLastBet(betAmount);
@@ -207,85 +279,102 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
     setInsuranceBet(0);
     setResult("");
     setPayout(0);
-    setDealStep(0);
-    setHitFaceDown(false);
+    setPlayerHand([]);
+    setDealerHand([]);
+    setVisibleCards({ player: new Set(), dealer: new Set() });
 
-    const p1 = dealCard();
-    const d1 = dealCard();
-    const p2 = dealCard();
-    const d2 = dealCard();
-
-    setPlayerHand([p1, p2]);
-    setDealerHand([d1, d2]);
-    setPhase("dealing");
-  }, [dealCard]);
+    const queue = buildDealQueue();
+    setEventQueue(queue);
+    setEventIndex(0);
+    setPhase("animating");
+  }, [buildDealQueue]);
 
   const doHit = useCallback(() => {
-    const newHand = [...playerHand, dealCard()];
-    setPlayerHand(newHand);
-    setHitFaceDown(true);
-    setPhase("hitAnim");
-  }, [playerHand, dealCard]);
+    const queue = buildHitQueue(false);
+    setEventQueue(queue);
+    setEventIndex(0);
+    setPhase("animating");
+  }, [buildHitQueue]);
 
   const doStand = useCallback(() => {
-    const newDealerHand = [...dealerHand];
-    while (dealerShouldHit(newDealerHand)) {
-      newDealerHand.push(dealCard());
-    }
-    setDealerHand(newDealerHand);
-
-    const extraCards = newDealerHand.length - 2;
-    const steps = 1 + extraCards * 2;
-    setDealerRevealStep(0);
-    setDealerMaxStep(steps);
-    setPhase("dealerTurn");
-  }, [dealerHand, dealCard]);
+    const queue = buildDealerTurnQueue();
+    setEventQueue(queue);
+    setEventIndex(0);
+    setPhase("animating");
+  }, [buildDealerTurnQueue]);
 
   const doFreeDouble = useCallback(() => {
     setFreeDoubled(true);
-    const newHand = [...playerHand, dealCard()];
-    setPlayerHand(newHand);
-    setHitFaceDown(true);
-    setPhase("hitAnim");
-  }, [playerHand, dealCard]);
+    const queue = buildHitQueue(true);
+    setEventQueue(queue);
+    setEventIndex(0);
+    setPhase("animating");
+  }, [buildHitQueue]);
 
   const doDoubleDown = useCallback(() => {
     setDoubledDown(true);
-    onUpdateBalance(-bet); // deduct extra bet
-    const newHand = [...playerHand, dealCard()];
-    setPlayerHand(newHand);
-    setHitFaceDown(true);
-    setPhase("doubleDownAnim");
-  }, [playerHand, dealCard, bet, onUpdateBalance]);
+    onUpdateBalance(-bet);
+    const queue = buildHitQueue(true);
+    setEventQueue(queue);
+    setEventIndex(0);
+    setPhase("animating");
+  }, [buildHitQueue, bet, onUpdateBalance]);
 
   const doDoubleUp = useCallback(() => {
     setDoubledUp(true);
-    onUpdateBalance(-bet); // deduct the double up amount
-    // Double up does NOT draw a card — just doubles the bet and stands
-    const newDealerHand = [...dealerHand];
-    while (dealerShouldHit(newDealerHand)) {
-      newDealerHand.push(dealCard());
+    onUpdateBalance(-bet);
+    const queue = buildDealerTurnQueue();
+    setEventQueue(queue);
+    setEventIndex(0);
+    setPhase("animating");
+  }, [buildDealerTurnQueue, bet, onUpdateBalance]);
+
+  // --- Insurance handling ---
+
+  const handleInsurance = useCallback((accepted: boolean) => {
+    const currentBet = betRef.current;
+    const ins = Math.floor(currentBet / 2);
+
+    if (accepted) {
+      setInsuranceBet(ins);
+      onUpdateBalance(-ins);
     }
-    setDealerHand(newDealerHand);
-    const extraCards = newDealerHand.length - 2;
-    const steps = 1 + extraCards * 2;
-    setDealerRevealStep(0);
-    setDealerMaxStep(steps);
-    setPhase("dealerTurn");
-  }, [dealerHand, dealCard, bet, onUpdateBalance]);
+
+    const pHand = playerHandRef.current;
+    const dHand = dealerHandRef.current;
+    const pBJ = isBlackjack(pHand);
+    const dBJ = isBlackjack(dHand);
+
+    if (pBJ || dBJ) {
+      const queue: GameEvent[] = [
+        { type: "flip", target: "dealer", cardIndex: 1, duration: FLIP_DELAY },
+        { type: "updateValue", target: "dealer", duration: 0 },
+        { type: "evaluate", callback: () => {
+          if (accepted) {
+            const insPayout = dBJ ? ins * 2 : 0;
+            onUpdateBalance(insPayout);
+          }
+          const r = resolveHand(handValue(pHand), handValue(dHand), pBJ, dBJ);
+          const p = calculatePayout(currentBet, r, false);
+          const label = r === "blackjack" ? "BLACKJACK!" : r === "push" ? "Push" : "Dealer Blackjack";
+          finishHand(label, p);
+          return null;
+        }, duration: 0 },
+      ];
+      setEventQueue(queue);
+      setEventIndex(0);
+      setPhase("animating");
+    } else {
+      setPhase("playing");
+    }
+  }, [onUpdateBalance, finishHand]);
+
+  // --- Input handling ---
 
   useInput((input, key) => {
     if (phase === "insurance") {
-      if (input === "y") {
-        const ins = Math.floor(bet / 2);
-        setInsuranceBet(ins);
-        onUpdateBalance(-ins);
-        // Small delay then proceed
-        setTimeout(() => afterInsurance(), 300);
-      }
-      if (input === "n") {
-        afterInsurance();
-      }
+      if (input === "y") handleInsurance(true);
+      if (input === "n") handleInsurance(false);
     }
     if (phase === "playing") {
       const noDoubleYet = !freeDoubled && !doubledDown && !doubledUp;
@@ -303,81 +392,15 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
     }
   });
 
-  // --- Rendering helpers ---
+  // --- Derived display values ---
 
-  function playerVisible(): number {
-    if (phase === "dealing") {
-      if (dealStep >= 5) return 2;
-      if (dealStep >= 1) return 1;
-      return 0;
-    }
-    return playerHand.length;
-  }
+  const visiblePlayerCards = playerHand.filter((_, i) => visibleCards.player.has(i));
+  const visibleDealerCards = dealerHand.filter((_, i) => visibleCards.dealer.has(i));
+  const playerDisplayValue = handDisplayValue(visiblePlayerCards);
+  const dealerDisplayValue = handDisplayValue(visibleDealerCards);
 
-  function playerFaceDown(): Set<number> {
-    const s = new Set<number>();
-    if (phase === "dealing") {
-      if (dealStep >= 1 && dealStep < 2) s.add(0);
-      if (dealStep >= 5 && dealStep < 6) s.add(1);
-    }
-    if ((phase === "hitAnim" || phase === "doubleDownAnim") && hitFaceDown) {
-      s.add(playerHand.length - 1);
-    }
-    return s;
-  }
-
-  function dealerVisible(): number {
-    if (phase === "dealing") {
-      if (dealStep >= 7) return 2;
-      if (dealStep >= 3) return 1;
-      return 0;
-    }
-    if (phase === "dealerTurn") {
-      if (dealerRevealStep <= 1) return 2;
-      const extraRevealed = Math.ceil((dealerRevealStep - 1) / 2);
-      return Math.min(2 + extraRevealed, dealerHand.length);
-    }
-    return dealerHand.length;
-  }
-
-  function dealerFaceDown(): Set<number> {
-    const s = new Set<number>();
-    if (phase === "dealing") {
-      if (dealStep >= 3 && dealStep < 4) s.add(0);
-      s.add(1); // hole card always down during deal
-    }
-    if (phase === "insurance" || phase === "playing" || phase === "hitAnim" || phase === "doubleDownAnim") {
-      s.add(1); // hole card stays down
-    }
-    if (phase === "dealerTurn") {
-      // Step 0: hole card (index 1) still face-down
-      // Step 1: hole card flips face-up
-      // Step 2: extra card at index 2 placed face-down
-      // Step 3: extra card at index 2 flips face-up
-      // Step 4: extra card at index 3 placed face-down
-      // etc.
-      if (dealerRevealStep < 1) s.add(1); // hole not yet flipped
-
-      // How many extra cards have been fully revealed (flipped face-up)
-      const fullyRevealedExtras = dealerRevealStep <= 1 ? 0 : Math.floor((dealerRevealStep - 1 + 1) / 2);
-      const firstUnrevealedIdx = 2 + fullyRevealedExtras;
-
-      // Mark all not-yet-revealed extra cards as face-down
-      for (let i = firstUnrevealedIdx; i < dealerHand.length; i++) {
-        s.add(i);
-      }
-
-      // If current step is a "place" step (even, > 1), that card is also face-down
-      // (already covered by the loop above since it's >= firstUnrevealedIdx)
-    }
-    return s;
-  }
-
-  const dFD = dealerFaceDown();
-  const dVis = dealerVisible();
-  const showDealerValue = phase === "result" || phase === "dealerTurn";
-  const pFD = playerFaceDown();
-  const showPlayerValue = pFD.size === 0;
+  const doubleUpAmount = doubledUp ? bet : 0;
+  const effectiveBet = (doubledDown ? bet * 2 : bet) + doubleUpAmount;
 
   // --- Betting screen ---
   if (phase === "betting") {
@@ -403,19 +426,18 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
       <Box marginTop={1} flexDirection="column">
         <Box>
           <Text dimColor>Dealer </Text>
-          {showDealerValue && <Text dimColor>[{handValue(dealerHand.slice(0, dVis).filter((_, i) => !dFD.has(i)))}]</Text>}
+          {dealerDisplayValue && <Text dimColor>[{dealerDisplayValue}]</Text>}
         </Box>
         <HandDisplay
           cards={dealerHand}
-          visibleCount={dealerVisible()}
-          faceDownSet={dealerFaceDown()}
+          visibleSet={visibleCards.dealer}
         />
       </Box>
 
       <Box marginTop={1} flexDirection="column">
         <Box>
           <Text dimColor>You </Text>
-          {showPlayerValue && <Text dimColor>[{handValue(playerHand)}]</Text>}
+          {playerDisplayValue && <Text dimColor>[{playerDisplayValue}]</Text>}
           {canFreeDouble(playerHand) && phase === "playing" && (
             <Text color="yellow" bold>  FREE DOUBLE!</Text>
           )}
@@ -425,8 +447,7 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
         </Box>
         <HandDisplay
           cards={playerHand}
-          visibleCount={playerVisible()}
-          faceDownSet={playerFaceDown()}
+          visibleSet={visibleCards.player}
         />
       </Box>
 
@@ -462,7 +483,7 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
             <Text bold>[Q]</Text><Text>uit</Text>
           </Text>
         )}
-        {(phase === "dealing" || phase === "hitAnim" || phase === "dealerTurn" || phase === "doubleDownAnim") && (
+        {phase === "animating" && (
           <Text dimColor>Dealing...</Text>
         )}
         {phase === "result" && (
