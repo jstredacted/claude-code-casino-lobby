@@ -3,7 +3,7 @@ import { Box, Text, useInput } from "ink";
 
 const CHIPS = [10, 25, 50, 100];
 const MIN_BET = 1;
-const MAX_BET = 500;
+const MAX_BET = 999999;
 
 interface BetPickerProps {
   balance: number;
@@ -59,6 +59,9 @@ export function BetPicker({ balance, lastBet, onConfirm, onQuit }: BetPickerProp
         setManualInput("");
         setMode("manual");
       }
+      if (input === "a") {
+        if (balance >= MIN_BET) onConfirm(balance);
+      }
     } else if (mode === "manual") {
       if (key.return) {
         const amount = parseInt(manualInput);
@@ -75,7 +78,7 @@ export function BetPicker({ balance, lastBet, onConfirm, onQuit }: BetPickerProp
         setManualInput((p) => p.slice(0, -1));
         return;
       }
-      if (/^[0-9]$/.test(input) && manualInput.length < 4) {
+      if (/^[0-9]$/.test(input) && manualInput.length < 7) {
         setManualInput((p) => p + input);
       }
     }
@@ -95,7 +98,7 @@ export function BetPicker({ balance, lastBet, onConfirm, onQuit }: BetPickerProp
             ))}
           </Box>
           <Box marginTop={1}>
-            <Text dimColor>{"\u2190\u2192"} Select   Enter: Confirm   [M] Manual   q: Back</Text>
+            <Text dimColor>{"\u2190\u2192"} Select   Enter: Confirm   [M] Manual   [A] All In (${balance.toLocaleString()})   q: Back</Text>
           </Box>
         </>
       ) : (
@@ -106,12 +109,10 @@ export function BetPicker({ balance, lastBet, onConfirm, onQuit }: BetPickerProp
               <Text bold color={manualValid ? "green" : manualInput.length > 0 ? "red" : "white"}>
                 {manualInput || "_"}
               </Text>
-              <Text dimColor> </Text>
-              <Text color="gray">\u2588</Text>
             </Box>
             <Box marginTop={1}>
               <Text dimColor>
-                ${MIN_BET}–${Math.min(MAX_BET, balance)} (balance: ${balance.toLocaleString()})
+                ${MIN_BET}–${balance.toLocaleString()} (balance: ${balance.toLocaleString()})
               </Text>
             </Box>
           </Box>
