@@ -60,13 +60,13 @@ export function resolveHand(
   playerValue: number,
   dealerValue: number,
   playerBlackjack: boolean,
-  dealerBlackjack: boolean
+  dealerBlackjack: boolean,
 ): BlackjackResult {
   if (playerBlackjack && dealerBlackjack) return "push";
   if (playerBlackjack) return "blackjack";
   if (dealerBlackjack) return "lose";
-  if (playerValue === 22) return "push22";
   if (playerValue > 21) return "bust";
+  if (dealerValue === 22) return "push22"; // dealer 22 is a push, not a dealer bust
   if (dealerValue > 21) return "win";
   if (playerValue > dealerValue) return "win";
   if (playerValue < dealerValue) return "lose";

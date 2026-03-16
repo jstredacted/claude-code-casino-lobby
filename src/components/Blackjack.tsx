@@ -134,12 +134,10 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
     const timer = setTimeout(() => {
       setHitFaceDown(false);
       const pVal = handValue(playerHand);
-      if (pVal === 22) {
-        finishHand("Push (22)", calculatePayout(effectiveBet, "push22", freeDoubled, doubleUpAmount));
-      } else if (pVal > 21) {
+      if (pVal > 21) {
         finishHand("Bust!", calculatePayout(effectiveBet, "bust", freeDoubled, doubleUpAmount));
-      } else if (freeDoubled || doubledUp) {
-        // Free double and double up are one-card actions — auto-stand
+      } else if (freeDoubled) {
+        // Free double is a one-card action — auto-stand
         const newDealerHand = [...dealerHand];
         while (dealerShouldHit(newDealerHand)) {
           newDealerHand.push(dealCard());
@@ -163,9 +161,7 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
     const timer = setTimeout(() => {
       setHitFaceDown(false);
       const pVal = handValue(playerHand);
-      if (pVal === 22) {
-        finishHand("Push (22)", calculatePayout(bet * 2 + doubleUpAmount, "push22", false, doubleUpAmount));
-      } else if (pVal > 21) {
+      if (pVal > 21) {
         finishHand("Bust!", calculatePayout(bet * 2 + doubleUpAmount, "bust", false, doubleUpAmount));
       } else {
         // Auto-stand after double down
@@ -265,11 +261,18 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
   const doDoubleUp = useCallback(() => {
     setDoubledUp(true);
     onUpdateBalance(-bet); // deduct the double up amount
-    const newHand = [...playerHand, dealCard()];
-    setPlayerHand(newHand);
-    setHitFaceDown(true);
-    setPhase("hitAnim");
-  }, [playerHand, dealCard, bet, onUpdateBalance]);
+    // Double up does NOT draw a card — just doubles the bet and stands
+    const newDealerHand = [...dealerHand];
+    while (dealerShouldHit(newDealerHand)) {
+      newDealerHand.push(dealCard());
+    }
+    setDealerHand(newDealerHand);
+    const extraCards = newDealerHand.length - 2;
+    const steps = 1 + extraCards * 2;
+    setDealerRevealStep(0);
+    setDealerMaxStep(steps);
+    setPhase("dealerTurn");
+  }, [dealerHand, dealCard, bet, onUpdateBalance]);
 
   useInput((input, key) => {
     if (phase === "insurance") {
@@ -290,7 +293,7 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
       if (input === "s" && noDoubleYet) doStand();
       if (input === "d" && noDoubleYet && canFreeDouble(playerHand)) doFreeDouble();
       if (input === "x" && noDoubleYet && canDoubleDown(playerHand, balance - bet, bet)) doDoubleDown();
-      if (input === "u" && noDoubleYet && balance - bet >= bet) doDoubleUp();
+      if (input === "u" && noDoubleYet && playerHand.length === 2 && balance - bet >= bet) doDoubleUp();
       if (input === "r" && noDoubleYet && canSurrender(playerHand)) finishHand("Surrender", -bet * 0.5);
       if (input === "q") onQuit();
     }
@@ -450,7 +453,7 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
             {canFreeDouble(playerHand) && canDoubleDown(playerHand, balance - bet, bet) && (
               <><Text bold color="magenta">[X]</Text><Text color="magenta"> Paid Double (${bet})  </Text></>
             )}
-            {balance - bet >= bet && (
+            {playerHand.length === 2 && balance - bet >= bet && (
               <><Text bold color="green">[U]</Text><Text color="green"> Double Up (${bet})  </Text></>
             )}
             {canSurrender(playerHand) && (

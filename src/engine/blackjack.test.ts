@@ -86,14 +86,17 @@ describe("resolveHand", () => {
   test("both blackjack is push", () => {
     expect(resolveHand(21, 21, true, true)).toBe("push");
   });
-  test("player 22 is push22", () => {
-    expect(resolveHand(22, 18, false, false)).toBe("push22");
+  test("player 22 is bust", () => {
+    expect(resolveHand(22, 18, false, false)).toBe("bust");
   });
   test("player bust over 22 loses", () => {
     expect(resolveHand(23, 18, false, false)).toBe("bust");
   });
-  test("dealer bust player wins", () => {
-    expect(resolveHand(18, 22, false, false)).toBe("win");
+  test("dealer 22 is push22", () => {
+    expect(resolveHand(18, 22, false, false)).toBe("push22");
+  });
+  test("dealer bust over 22 player wins", () => {
+    expect(resolveHand(18, 23, false, false)).toBe("win");
   });
   test("equal values is push", () => {
     expect(resolveHand(18, 18, false, false)).toBe("push");
