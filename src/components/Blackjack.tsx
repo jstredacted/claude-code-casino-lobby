@@ -136,12 +136,24 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
         finishHand("Push (22)", calculatePayout(effectiveBet, "push22", freeDoubled, doubleUpAmount));
       } else if (pVal > 21) {
         finishHand("Bust!", calculatePayout(effectiveBet, "bust", freeDoubled, doubleUpAmount));
+      } else if (freeDoubled || doubledUp) {
+        // Free double and double up are one-card actions — auto-stand
+        const newDealerHand = [...dealerHand];
+        while (dealerShouldHit(newDealerHand)) {
+          newDealerHand.push(dealCard());
+        }
+        setDealerHand(newDealerHand);
+        const extraCards = newDealerHand.length - 2;
+        const steps = 1 + extraCards * 2;
+        setDealerRevealStep(0);
+        setDealerMaxStep(steps);
+        setPhase("dealerTurn");
       } else {
         setPhase("playing");
       }
     }, FLIP_DELAY);
     return () => clearTimeout(timer);
-  }, [phase, playerHand, effectiveBet, freeDoubled, doubleUpAmount, finishHand]);
+  }, [phase, playerHand, dealerHand, effectiveBet, freeDoubled, doubledUp, doubleUpAmount, dealCard, finishHand]);
 
   // --- Double down animation timer ---
   useEffect(() => {
@@ -251,15 +263,11 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
   const doDoubleUp = useCallback(() => {
     setDoubledUp(true);
     onUpdateBalance(-bet); // deduct the double up amount
-  }, [bet, onUpdateBalance]);
-
-  // Override hitAnim completion for free double
-  useEffect(() => {
-    if (phase !== "playing" || !freeDoubled) return;
-    if (playerHand.length === 3 && freeDoubled) {
-      doStand();
-    }
-  }, [phase, freeDoubled, playerHand.length, doStand]);
+    const newHand = [...playerHand, dealCard()];
+    setPlayerHand(newHand);
+    setHitFaceDown(true);
+    setPhase("hitAnim");
+  }, [playerHand, dealCard, bet, onUpdateBalance]);
 
   useInput((input, key) => {
     if (phase === "insurance") {
@@ -275,12 +283,13 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
       }
     }
     if (phase === "playing") {
-      if (input === "h") doHit();
-      if (input === "s") doStand();
-      if (input === "d" && canFreeDouble(playerHand)) doFreeDouble();
-      if (input === "x" && canDoubleDown(playerHand, balance, bet) && !freeDoubled) doDoubleDown();
-      if (input === "u" && !doubledUp && balance >= bet) doDoubleUp();
-      if (input === "r" && canSurrender(playerHand)) finishHand("Surrender", -bet * 0.5);
+      const noDoubleYet = !freeDoubled && !doubledDown && !doubledUp;
+      if (input === "h" && noDoubleYet) doHit();
+      if (input === "s" && noDoubleYet) doStand();
+      if (input === "d" && noDoubleYet && canFreeDouble(playerHand)) doFreeDouble();
+      if (input === "x" && noDoubleYet && canDoubleDown(playerHand, balance, bet)) doDoubleDown();
+      if (input === "u" && noDoubleYet && balance >= bet) doDoubleUp();
+      if (input === "r" && noDoubleYet && canSurrender(playerHand)) finishHand("Surrender", -bet * 0.5);
       if (input === "q") onQuit();
     }
     if (phase === "result") {
@@ -433,13 +442,13 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
             {canFreeDouble(playerHand) && (
               <><Text bold color="yellow">[D]</Text><Text color="yellow">ouble  </Text></>
             )}
-            {canDoubleDown(playerHand, balance, bet) && !freeDoubled && !canFreeDouble(playerHand) && (
+            {canDoubleDown(playerHand, balance, bet) && !canFreeDouble(playerHand) && (
               <><Text bold color="magenta">[X]</Text><Text color="magenta"> Double (${bet})  </Text></>
             )}
             {canFreeDouble(playerHand) && canDoubleDown(playerHand, balance, bet) && (
               <><Text bold color="magenta">[X]</Text><Text color="magenta"> Paid Double (${bet})  </Text></>
             )}
-            {!doubledUp && balance >= bet && (
+            {balance >= bet && (
               <><Text bold color="green">[U]</Text><Text color="green"> Double Up (${bet})  </Text></>
             )}
             {canSurrender(playerHand) && (
