@@ -11,6 +11,7 @@ import {
 } from "../engine/baccarat.js";
 import { loadHistory, saveHistory, addResult, type BaccaratHistoryEntry } from "../engine/history.js";
 import { BigRoad } from "./BigRoad.js";
+import { loadSettings, saveSettings } from "../settings.js";
 
 /*
  * Three-phase animation:
@@ -44,6 +45,7 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
   const [result, setResult] = useState("");
   const [payout, setPayout] = useState(0);
   const [history, setHistory] = useState<BaccaratHistoryEntry[]>(() => loadHistory());
+  const [chips, setChips] = useState(() => loadSettings().chips);
 
   const recordResult = useCallback((winner: "player" | "banker" | "tie") => {
     setHistory(prev => {
@@ -305,6 +307,11 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
           <BetPicker
             balance={balance}
             lastBet={lastBet}
+            chips={chips}
+            onChipsChange={(newChips) => {
+              setChips(newChips);
+              saveSettings({ chips: newChips });
+            }}
             onConfirm={(amount) => {
               setBet(amount);
               setLastBet(amount);
