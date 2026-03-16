@@ -1,4 +1,8 @@
 node_modules/
 dist/
 bankroll.json
+history.json
+settings.json
 .casino.pid
+.casino.lock
+.casino.dismissed

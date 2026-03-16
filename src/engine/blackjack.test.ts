@@ -86,8 +86,11 @@ describe("resolveHand", () => {
   test("both blackjack is push", () => {
     expect(resolveHand(21, 21, true, true)).toBe("push");
   });
-  test("player bust loses", () => {
-    expect(resolveHand(22, 18, false, false)).toBe("bust");
+  test("player 22 is push22", () => {
+    expect(resolveHand(22, 18, false, false)).toBe("push22");
+  });
+  test("player bust over 22 loses", () => {
+    expect(resolveHand(23, 18, false, false)).toBe("bust");
   });
   test("dealer bust player wins", () => {
     expect(resolveHand(18, 22, false, false)).toBe("win");
@@ -112,5 +115,11 @@ describe("calculatePayout", () => {
   });
   test("loss returns -bet", () => {
     expect(calculatePayout(100, "lose", false)).toBe(-100);
+  });
+  test("push22 returns 0 without double up", () => {
+    expect(calculatePayout(100, "push22", false, 0)).toBe(0);
+  });
+  test("push22 loses double up amount only", () => {
+    expect(calculatePayout(200, "push22", false, 100)).toBe(-100);
   });
 });

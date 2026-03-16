@@ -70,11 +70,15 @@ describe("calculateBaccaratPayout", () => {
   test("player bet wins pays 1:1", () => {
     expect(calculateBaccaratPayout(100, "player", "player")).toBe(100);
   });
-  test("banker bet wins pays 0.95:1", () => {
-    expect(calculateBaccaratPayout(100, "banker", "banker")).toBe(95);
+  test("banker bet wins pays 1:1 (no commission)", () => {
+    expect(calculateBaccaratPayout(100, "banker", "banker", 7)).toBe(100);
   });
-  test("tie bet wins pays 8:1", () => {
-    expect(calculateBaccaratPayout(100, "tie", "tie")).toBe(800);
+  test("banker 6 win pays 50% winnings", () => {
+    expect(calculateBaccaratPayout(100, "banker", "banker", 6)).toBe(50);
+  });
+  test("tie is a push — returns 0 regardless of bet side", () => {
+    expect(calculateBaccaratPayout(100, "player", "tie")).toBe(0);
+    expect(calculateBaccaratPayout(100, "banker", "tie")).toBe(0);
   });
   test("losing bet returns -bet", () => {
     expect(calculateBaccaratPayout(100, "player", "banker")).toBe(-100);

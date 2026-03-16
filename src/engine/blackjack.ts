@@ -54,7 +54,7 @@ export function dealerShouldHit(hand: Card[]): boolean {
   return handValue(hand) < 17;
 }
 
-export type BlackjackResult = "blackjack" | "win" | "lose" | "push" | "bust";
+export type BlackjackResult = "blackjack" | "win" | "lose" | "push" | "push22" | "bust";
 
 export function resolveHand(
   playerValue: number,
@@ -65,6 +65,7 @@ export function resolveHand(
   if (playerBlackjack && dealerBlackjack) return "push";
   if (playerBlackjack) return "blackjack";
   if (dealerBlackjack) return "lose";
+  if (playerValue === 22) return "push22";
   if (playerValue > 21) return "bust";
   if (dealerValue > 21) return "win";
   if (playerValue > dealerValue) return "win";
@@ -72,11 +73,12 @@ export function resolveHand(
   return "push";
 }
 
-export function calculatePayout(bet: number, result: BlackjackResult, isFreeDouble: boolean): number {
+export function calculatePayout(bet: number, result: BlackjackResult, isFreeDouble: boolean, doubleUpAmount: number = 0): number {
   switch (result) {
     case "blackjack": return bet * 1.5;
     case "win": return isFreeDouble ? bet * 2 : bet;
     case "push": return 0;
+    case "push22": return doubleUpAmount > 0 ? -doubleUpAmount : 0; // lose double up, original bet returned
     case "lose":
     case "bust": return -bet;
   }

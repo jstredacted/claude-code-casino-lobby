@@ -37,11 +37,18 @@ export function resolveBaccarat(playerTotal: number, bankerTotal: number): Bacca
   return "tie";
 }
 
-export function calculateBaccaratPayout(bet: number, betOn: BaccaratBet, result: BaccaratResult): number {
+export function calculateBaccaratPayout(bet: number, betOn: BaccaratBet, result: BaccaratResult, bankerTotal?: number): number {
+  if (result === "tie") {
+    // Tie is a push — bet returned regardless of what you bet on
+    return 0;
+  }
   if (betOn === result) {
     if (result === "player") return bet;
-    if (result === "banker") return bet * 0.95;
-    if (result === "tie") return bet * 8;
+    if (result === "banker") {
+      // No commission, but banker 6 pays 50% winnings
+      if (bankerTotal === 6) return bet * 0.5;
+      return bet;
+    }
   }
   return -bet;
 }

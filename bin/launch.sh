@@ -4,7 +4,8 @@
 LOCK_FILE="$HOME/.claude/casino/.casino.lock"
 PID_FILE="$HOME/.claude/casino/.casino.pid"
 DISMISSED_FILE="$HOME/.claude/casino/.casino.dismissed"
-BUN="/Users/justin/.local/share/mise/installs/bun/1.3.10/bin/bun"
+BUN="${BUN:-$(command -v bun)}"
+ZELLIJ="${ZELLIJ_PATH:-$(command -v zellij)}"
 
 # Only launch if inside a Zellij session
 if [ -z "$ZELLIJ" ]; then
@@ -31,7 +32,7 @@ echo $$ > "$LOCK_FILE"
 sleep 0.2
 
 # Launch as a floating pane in Zellij (backgrounded so hook doesn't block)
-zellij run --floating --name "casino" --close-on-exit -- bash -c "
+"$ZELLIJ" run --floating --name "casino" --close-on-exit -- bash -c "
   echo \$\$ > \"$PID_FILE\"
   cd \"$HOME/.claude/casino\"
   \"$BUN\" run src/index.tsx
