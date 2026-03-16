@@ -40,21 +40,18 @@ export function AsciiCard({ card, faceDown }: { card?: Card; faceDown?: boolean 
 
 export function HandDisplay({
   cards,
-  visibleCount,
-  faceDownSet,
+  visibleSet,
 }: {
   cards: Card[];
-  visibleCount?: number;
-  faceDownSet?: Set<number>;
+  visibleSet?: Set<number>;
 }) {
-  const count = visibleCount ?? cards.length;
-  const faceDown = faceDownSet ?? new Set<number>();
+  const visible = visibleSet ?? new Set(cards.map((_, i) => i));
 
   return (
     <Box flexDirection="row">
-      {cards.slice(0, count).map((card, i) => (
+      {cards.map((card, i) => (
         <Box key={i} marginRight={1}>
-          <AsciiCard card={card} faceDown={faceDown.has(i)} />
+          <AsciiCard card={card} faceDown={!visible.has(i)} />
         </Box>
       ))}
     </Box>
