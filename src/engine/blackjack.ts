@@ -16,6 +16,23 @@ export function handValue(hand: Card[]): number {
   return total;
 }
 
+export function handDisplayValue(cards: Card[]): string {
+  if (cards.length === 0) return "";
+  let total = cards.reduce((sum, c) => sum + cardPoints(c), 0);
+  let aces = cards.filter((c) => c.value === "A").length;
+  while (total > 21 && aces > 0) {
+    total -= 10;
+    aces--;
+  }
+  // At 21, just show 21 — no need for dual notation
+  if (total === 21) return "21";
+  // If at least one ace is still counted as 11, show dual value
+  if (aces > 0) {
+    return `${total - 10}/${total}`;
+  }
+  return `${total}`;
+}
+
 export function isBlackjack(hand: Card[]): boolean {
   return hand.length === 2 && handValue(hand) === 21;
 }

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { handValue, isBlackjack, isBust, canFreeDouble, canSurrender, dealerShouldHit, resolveHand, calculatePayout } from "./blackjack";
+import { handValue, isBlackjack, isBust, canFreeDouble, canSurrender, dealerShouldHit, resolveHand, calculatePayout, handDisplayValue } from "./blackjack";
 import type { Card } from "./deck";
 
 const card = (value: string, suit = "♠"): Card => ({ value, suit } as Card);
@@ -100,6 +100,42 @@ describe("resolveHand", () => {
   });
   test("equal values is push", () => {
     expect(resolveHand(18, 18, false, false)).toBe("push");
+  });
+});
+
+describe("handDisplayValue", () => {
+  test("empty hand returns empty string", () => {
+    expect(handDisplayValue([])).toBe("");
+  });
+  test("single ace shows dual value", () => {
+    expect(handDisplayValue([card("A")])).toBe("1/11");
+  });
+  test("ace + 6 shows soft 17", () => {
+    expect(handDisplayValue([card("A"), card("6")])).toBe("7/17");
+  });
+  test("ace + 6 + 3 shows soft 20", () => {
+    expect(handDisplayValue([card("A"), card("6"), card("3")])).toBe("10/20");
+  });
+  test("ace + 6 + 9 is hard 16 (ace forced to 1)", () => {
+    expect(handDisplayValue([card("A"), card("6"), card("9")])).toBe("16");
+  });
+  test("ace + 5 + 7 is hard 13", () => {
+    expect(handDisplayValue([card("A"), card("5"), card("7")])).toBe("13");
+  });
+  test("ace + 9 + 5 + 8 is bust 23", () => {
+    expect(handDisplayValue([card("A"), card("9"), card("5"), card("8")])).toBe("23");
+  });
+  test("two aces show soft 12", () => {
+    expect(handDisplayValue([card("A"), card("A")])).toBe("2/12");
+  });
+  test("two aces + 9 is 21 (both resolved)", () => {
+    expect(handDisplayValue([card("A"), card("A"), card("9")])).toBe("21");
+  });
+  test("king + 7 shows hard 17", () => {
+    expect(handDisplayValue([card("K"), card("7")])).toBe("17");
+  });
+  test("5 + 3 shows hard 8", () => {
+    expect(handDisplayValue([card("5"), card("3")])).toBe("8");
   });
 });
 
