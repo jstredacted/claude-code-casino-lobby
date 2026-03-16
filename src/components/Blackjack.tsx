@@ -289,8 +289,8 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
       if (input === "h" && noDoubleYet) doHit();
       if (input === "s" && noDoubleYet) doStand();
       if (input === "d" && noDoubleYet && canFreeDouble(playerHand)) doFreeDouble();
-      if (input === "x" && noDoubleYet && canDoubleDown(playerHand, balance, bet)) doDoubleDown();
-      if (input === "u" && noDoubleYet && balance >= bet) doDoubleUp();
+      if (input === "x" && noDoubleYet && canDoubleDown(playerHand, balance - bet, bet)) doDoubleDown();
+      if (input === "u" && noDoubleYet && balance - bet >= bet) doDoubleUp();
       if (input === "r" && noDoubleYet && canSurrender(playerHand)) finishHand("Surrender", -bet * 0.5);
       if (input === "q") onQuit();
     }
@@ -444,13 +444,13 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
             {canFreeDouble(playerHand) && (
               <><Text bold color="yellow">[D]</Text><Text color="yellow">ouble  </Text></>
             )}
-            {canDoubleDown(playerHand, balance, bet) && !canFreeDouble(playerHand) && (
+            {canDoubleDown(playerHand, balance - bet, bet) && !canFreeDouble(playerHand) && (
               <><Text bold color="magenta">[X]</Text><Text color="magenta"> Double (${bet})  </Text></>
             )}
-            {canFreeDouble(playerHand) && canDoubleDown(playerHand, balance, bet) && (
+            {canFreeDouble(playerHand) && canDoubleDown(playerHand, balance - bet, bet) && (
               <><Text bold color="magenta">[X]</Text><Text color="magenta"> Paid Double (${bet})  </Text></>
             )}
-            {balance >= bet && (
+            {balance - bet >= bet && (
               <><Text bold color="green">[U]</Text><Text color="green"> Double Up (${bet})  </Text></>
             )}
             {canSurrender(playerHand) && (
