@@ -141,24 +141,24 @@ describe("handDisplayValue", () => {
 
 describe("calculatePayout", () => {
   test("blackjack pays 3:2", () => {
-    expect(calculatePayout(100, "blackjack", false)).toBe(150);
+    expect(calculatePayout(100, "blackjack")).toBe(150);
   });
   test("normal win pays 1:1", () => {
-    expect(calculatePayout(100, "win", false)).toBe(100);
+    expect(calculatePayout(100, "win")).toBe(100);
   });
-  test("free double win pays 2:1", () => {
-    expect(calculatePayout(100, "win", true)).toBe(200);
+  test("free double win pays 1:1 on original bet", () => {
+    expect(calculatePayout(100, "win")).toBe(100);
   });
   test("push returns 0", () => {
-    expect(calculatePayout(100, "push", false)).toBe(0);
+    expect(calculatePayout(100, "push")).toBe(0);
   });
   test("loss returns -bet", () => {
-    expect(calculatePayout(100, "lose", false)).toBe(-100);
+    expect(calculatePayout(100, "lose")).toBe(-100);
   });
   test("push22 returns 0 without double up", () => {
-    expect(calculatePayout(100, "push22", false, 0)).toBe(0);
+    expect(calculatePayout(100, "push22", 0)).toBe(0);
   });
   test("push22 loses double up amount only", () => {
-    expect(calculatePayout(200, "push22", false, 100)).toBe(-100);
+    expect(calculatePayout(200, "push22", 100)).toBe(-100);
   });
 });

@@ -90,10 +90,10 @@ export function resolveHand(
   return "push";
 }
 
-export function calculatePayout(bet: number, result: BlackjackResult, isFreeDouble: boolean, doubleUpAmount: number = 0): number {
+export function calculatePayout(bet: number, result: BlackjackResult, doubleUpAmount: number = 0): number {
   switch (result) {
     case "blackjack": return bet * 1.5;
-    case "win": return isFreeDouble ? bet * 2 : bet;
+    case "win": return bet;
     case "push": return 0;
     case "push22": return doubleUpAmount > 0 ? -doubleUpAmount : 0; // lose double up, original bet returned
     case "lose":

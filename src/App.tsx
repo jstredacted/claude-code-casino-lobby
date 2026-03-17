@@ -13,13 +13,18 @@ export function App() {
   const [bankroll, setBankroll] = useState<Bankroll>(() => loadBankroll());
   const [settings, setSettings] = useState<CasinoSettings>(() => loadSettings());
 
-  const updateBalance = useCallback((delta: number) => {
+  const updateBalance = useCallback((delta: number, handComplete = false) => {
     setBankroll((prev) => {
+      const newBalance = Math.round((prev.balance + delta) * 100) / 100;
       const updated = {
-        balance: Math.round((prev.balance + delta) * 100) / 100,
-        hands_played: prev.hands_played + 1,
+        balance: newBalance,
+        hands_played: handComplete ? prev.hands_played + 1 : prev.hands_played,
       };
       saveBankroll(updated, settings.startingBalance);
+      // Auto-refill only after a hand completes with zero/negative balance
+      if (handComplete && newBalance <= 0) {
+        updated.balance = settings.startingBalance;
+      }
       return updated;
     });
   }, [settings.startingBalance]);

@@ -29,7 +29,7 @@ type GameEvent =
 
 interface BlackjackProps {
   balance: number;
-  onUpdateBalance: (delta: number) => void;
+  onUpdateBalance: (delta: number, handComplete?: boolean) => void;
   onQuit: () => void;
 }
 
@@ -81,10 +81,10 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
     return deal(shoe);
   }, [shoe]);
 
-  const finishHand = useCallback((r: string, p: number) => {
+  const finishHand = useCallback((r: string, netPayout: number, totalWagered: number) => {
     setResult(r);
-    setPayout(p);
-    onUpdateBalance(p);
+    setPayout(netPayout);
+    onUpdateBalance(totalWagered + netPayout, true);
     setPhase("result");
   }, [onUpdateBalance]);
 
@@ -97,9 +97,9 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
     const pBJ = isBlackjack(pHand);
     const dBJ = isBlackjack(dHand);
     const r = resolveHand(handValue(pHand), handValue(dHand), pBJ, dBJ);
-    const p = calculatePayout(currentBet, r, false);
+    const p = calculatePayout(currentBet, r);
     const label = r === "blackjack" ? "BLACKJACK!" : r === "push" ? "Push" : "Dealer Blackjack";
-    finishHand(label, p);
+    finishHand(label, p, currentBet);
     return null;
   }, [finishHand]);
 
@@ -118,16 +118,15 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
     // Dealer stands — resolve
     const pHand = playerHandRef.current;
     const currentBet = betRef.current;
-    const isFreeDoubled = freeDoubledRef.current;
     const isDoubledDown = doubledDownRef.current;
     const isDoubledUp = doubledUpRef.current;
     const dUpAmt = isDoubledUp ? currentBet : 0;
     const effBet = (isDoubledDown ? currentBet * 2 : currentBet) + dUpAmt;
 
     const r = resolveHand(handValue(pHand), handValue(dHand), false, false);
-    const p = calculatePayout(effBet, r, isFreeDoubled, dUpAmt);
+    const p = calculatePayout(effBet, r, dUpAmt);
     const label = r === "win" ? "You Win!" : r === "lose" ? "Dealer Wins" : r === "push22" ? "Push (22)" : "Push";
-    finishHand(label, p);
+    finishHand(label, p, effBet);
     return null;
   }, [finishHand]);
 
@@ -146,12 +145,11 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
       const pVal = handValue(pHand);
       if (pVal > 21) {
         const currentBet = betRef.current;
-        const isFreeDoubled = freeDoubledRef.current;
         const isDoubledDown = doubledDownRef.current;
         const isDoubledUp = doubledUpRef.current;
         const dUpAmt = isDoubledUp ? currentBet : 0;
         const effBet = (isDoubledDown ? currentBet * 2 : currentBet) + dUpAmt;
-        finishHand("Bust!", calculatePayout(effBet, "bust", isFreeDoubled, dUpAmt));
+        finishHand("Bust!", calculatePayout(effBet, "bust", dUpAmt), effBet);
         return null;
       }
       if (autoStand) {
@@ -283,11 +281,13 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
     setDealerHand([]);
     setVisibleCards({ player: new Set(), dealer: new Set() });
 
+    onUpdateBalance(-betAmount);
+
     const queue = buildDealQueue();
     setEventQueue(queue);
     setEventIndex(0);
     setPhase("animating");
-  }, [buildDealQueue]);
+  }, [buildDealQueue, onUpdateBalance]);
 
   const doHit = useCallback(() => {
     const queue = buildHitQueue(false);
@@ -355,9 +355,9 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
             onUpdateBalance(insPayout);
           }
           const r = resolveHand(handValue(pHand), handValue(dHand), pBJ, dBJ);
-          const p = calculatePayout(currentBet, r, false);
+          const p = calculatePayout(currentBet, r);
           const label = r === "blackjack" ? "BLACKJACK!" : r === "push" ? "Push" : "Dealer Blackjack";
-          finishHand(label, p);
+          finishHand(label, p, currentBet);
           return null;
         }, duration: 0 },
       ];
@@ -381,9 +381,9 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
       if (input === "h" && noDoubleYet) doHit();
       if (input === "s" && noDoubleYet) doStand();
       if (input === "d" && noDoubleYet && canFreeDouble(playerHand)) doFreeDouble();
-      if (input === "x" && noDoubleYet && canDoubleDown(playerHand, balance - bet, bet)) doDoubleDown();
-      if (input === "u" && noDoubleYet && playerHand.length === 2 && balance - bet >= bet) doDoubleUp();
-      if (input === "r" && noDoubleYet && canSurrender(playerHand)) finishHand("Surrender", -bet * 0.5);
+      if (input === "x" && noDoubleYet && canDoubleDown(playerHand, balance, bet)) doDoubleDown();
+      if (input === "u" && noDoubleYet && playerHand.length === 2 && balance >= bet) doDoubleUp();
+      if (input === "r" && noDoubleYet && canSurrender(playerHand)) finishHand("Surrender", -bet * 0.5, bet);
       if (input === "q") onQuit();
     }
     if (phase === "result") {
@@ -468,13 +468,13 @@ export function Blackjack({ balance, onUpdateBalance, onQuit }: BlackjackProps) 
             {canFreeDouble(playerHand) && (
               <><Text bold color="yellow">[D]</Text><Text color="yellow">ouble  </Text></>
             )}
-            {canDoubleDown(playerHand, balance - bet, bet) && !canFreeDouble(playerHand) && (
+            {canDoubleDown(playerHand, balance, bet) && !canFreeDouble(playerHand) && (
               <><Text bold color="magenta">[X]</Text><Text color="magenta"> Double (${bet})  </Text></>
             )}
-            {canFreeDouble(playerHand) && canDoubleDown(playerHand, balance - bet, bet) && (
+            {canFreeDouble(playerHand) && canDoubleDown(playerHand, balance, bet) && (
               <><Text bold color="magenta">[X]</Text><Text color="magenta"> Paid Double (${bet})  </Text></>
             )}
-            {playerHand.length === 2 && balance - bet >= bet && (
+            {playerHand.length === 2 && balance >= bet && (
               <><Text bold color="green">[U]</Text><Text color="green"> Double Up (${bet})  </Text></>
             )}
             {canSurrender(playerHand) && (

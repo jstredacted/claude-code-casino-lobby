@@ -25,10 +25,10 @@ export function saveBankroll(bankroll: Bankroll, startingBalance?: number, path:
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
-  if (bankroll.balance <= 0) {
-    const refill = startingBalance ?? loadSettings().startingBalance;
-    bankroll.balance = refill;
-  }
+  // Save refilled value to disk without mutating the input object
+  const toSave = bankroll.balance <= 0
+    ? { ...bankroll, balance: startingBalance ?? loadSettings().startingBalance }
+    : bankroll;
 
-  writeFileSync(path, JSON.stringify(bankroll, null, 2));
+  writeFileSync(path, JSON.stringify(toSave, null, 2));
 }

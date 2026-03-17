@@ -30,7 +30,7 @@ const DEAL_DELAY = 100; // fast face-down placement
 
 interface BaccaratProps {
   balance: number;
-  onUpdateBalance: (delta: number) => void;
+  onUpdateBalance: (delta: number, handComplete?: boolean) => void;
   onQuit: () => void;
 }
 
@@ -73,6 +73,7 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
 
   const playRound = useCallback((side: BaccaratBet) => {
     setBetSide(side);
+    onUpdateBalance(-bet);
 
     // Only deal initial 2 cards each
     const pHand = [dealCard(), dealCard()];
@@ -86,7 +87,7 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
     setThirdRevealStep(0);
     setThirdCardCount(0);
     setPhase("dealing");
-  }, [shoe, dealCard]);
+  }, [shoe, dealCard, bet, onUpdateBalance]);
 
   // After initial 4 revealed, check if third cards are needed
   const checkThirdCards = useCallback(() => {
@@ -99,7 +100,7 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
       const p = calculateBaccaratPayout(bet, betSide, r, bTotal);
       setResult(r === "player" ? "Player Wins!" : r === "banker" ? "Banker Wins!" : "Tie!");
       setPayout(p);
-      onUpdateBalance(p);
+      onUpdateBalance(bet + p, true);
       recordResult(r);
       setPhase("result");
       return;
@@ -138,7 +139,7 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
       const p = calculateBaccaratPayout(bet, betSide, r, bTotal);
       setResult(r === "player" ? "Player Wins!" : r === "banker" ? "Banker Wins!" : "Tie!");
       setPayout(p);
-      onUpdateBalance(p);
+      onUpdateBalance(bet + p, true);
       recordResult(r);
       setPhase("result");
     }
@@ -185,10 +186,10 @@ export function Baccarat({ balance, onUpdateBalance, onQuit }: BaccaratProps) {
         const pTotal = baccaratHandTotal(playerHand);
         const bTotal = baccaratHandTotal(bankerHand);
         const r = resolveBaccarat(pTotal, bTotal);
-        const p = calculateBaccaratPayout(bet, betSide, r);
+        const p = calculateBaccaratPayout(bet, betSide, r, bTotal);
         setResult(r === "player" ? "Player Wins!" : r === "banker" ? "Banker Wins!" : "Tie!");
         setPayout(p);
-        onUpdateBalance(p);
+        onUpdateBalance(bet + p, true);
         recordResult(r);
         setPhase("result");
       }, 500);
