@@ -13,9 +13,9 @@ import { loadSettings, saveSettings } from "../settings.js";
 
 type Phase = "betting" | "animating" | "insurance" | "playing" | "result";
 
-const DEAL_DELAY = 200;
-const REVEAL_PAUSE = 2000;
-const FLIP_DELAY = 250;
+const DEAL_DELAY = 150;
+const REVEAL_PAUSE = 600;
+const FLIP_DELAY = 150;
 
 type EvaluateCallback = () => GameEvent[] | null;
 
